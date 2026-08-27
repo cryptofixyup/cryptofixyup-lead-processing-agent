@@ -59,11 +59,14 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
     const { approved } = await approvalHook;
 
     if (!approved) {
-      await stepUpdateLead(leadId, { status: 'rejected' });
+      await stepUpdateLead(leadId, {
+        status: 'rejected',
+        approvalTokenHash: undefined
+      });
       return { status: 'rejected', category: qualification.category };
     }
 
-    const delivery = await stepSendEmail(data.email, emailDraft);
+    const delivery = await stepSendEmail(data.email, emailDraft, leadId);
     await stepUpdateLead(leadId, {
       status: 'sent',
       delivery,
