@@ -6,51 +6,71 @@ import {
   stepQualify,
   stepResearch,
   stepSendEmail,
+  stepUpdateLead,
   stepWriteEmail
 } from './steps';
 
 /**
- * Durable inbound lead workflow.
- *
- * Qualified leads are researched, drafted, sent to Slack for human approval,
- * and the workflow then pauses until the approval hook is resumed.
+ * Durable inbound lead workflow with persistent lifecycle state.
  */
-export const workflowInbound = async (data: FormSchema) => {
+export const workflowInbound = async (data: FormSchema, leadId: string) => {
   'use workflow';
 
-  const research = await stepResearch(data);
-  const qualification = await stepQualify(data, research);
+  try {
+    await stepUpdateLead(leadId, { status: 'researching' });
+    const research = await stepResearch(data);
+    const qualification = await stepQualify(data, research);
 
-  if (
-    qualification.category !== 'QUALIFIED' &&
-    qualification.category !== 'FOLLOW_UP'
-  ) {
-    return { status: 'closed', category: qualification.category };
+    await stepUpdateLead(leadId, {
+      status:
+        qualification.category === 'QUALIFIED' ||
+        qualification.category === 'FOLLOW_UP'
+          ? 'qualified'
+          : 'closed',
+      qualification
+    });
+
+    if (
+      qualification.category !== 'QUALIFIED' &&
+      qualification.category !== 'FOLLOW_UP'
+    ) {
+      return { status: 'closed', category: qualification.category };
+    }
+
+    const emailDraft = await stepWriteEmail(research, qualification);
+    const approvalToken = await stepCreateApprovalToken();
+
+    await stepHumanFeedback(
+      data.email,
+      research,
+      emailDraft,
+      qualification,
+      approvalToken
+    );
+
+    await stepUpdateLead(leadId, { status: 'approval_pending' });
+
+    const approvalHook = leadApprovalHook.create({ token: approvalToken });
+    const { approved } = await approvalHook;
+
+    if (!approved) {
+      await stepUpdateLead(leadId, { status: 'rejected' });
+      return { status: 'rejected', category: qualification.category };
+    }
+
+    const delivery = await stepSendEmail(data.email, emailDraft);
+    await stepUpdateLead(leadId, { status: 'sent', delivery });
+
+    return {
+      status: 'sent',
+      category: qualification.category,
+      delivery
+    };
+  } catch (error) {
+    await stepUpdateLead(leadId, { status: 'failed' }).catch((stateError) => {
+      console.error('[lead-workflow] failed to persist failure state', stateError);
+    });
+
+    throw error;
   }
-
-  const emailDraft = await stepWriteEmail(research, qualification);
-  const approvalToken = await stepCreateApprovalToken();
-  const approvalHook = leadApprovalHook.create({ token: approvalToken });
-
-  await stepHumanFeedback(
-    data.email,
-    research,
-    emailDraft,
-    qualification,
-    approvalToken
-  );
-
-  const { approved } = await approvalHook;
-
-  if (!approved) {
-    return { status: 'rejected', category: qualification.category };
-  }
-
-  const delivery = await stepSendEmail(data.email, emailDraft);
-
-  return {
-    status: 'sent',
-    category: qualification.category,
-    delivery
-  };
 };
