@@ -1,10 +1,12 @@
 import { checkBotId } from 'botid/server';
 import { start } from 'workflow/api';
 import { createLeadRecord, updateLead } from '@/lib/lead-store';
+import { checkLeadRateLimit, getClientKey } from '@/lib/rate-limit';
 import { formSchema } from '@/lib/types';
 import { workflowInbound } from '@/workflows/inbound';
 
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+const MAX_BODY_BYTES = 16 * 1024;
 
 async function hashPayload(data: unknown): Promise<string> {
   const encoded = new TextEncoder().encode(JSON.stringify(data));
@@ -21,29 +23,48 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Access denied' }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => null);
-  const parsedBody = formSchema.safeParse(body);
-
-  if (!parsedBody.success) {
-    return Response.json({ error: parsedBody.error.message }, { status: 400 });
+  const contentLength = Number(request.headers.get('content-length') || 0);
+  if (contentLength > MAX_BODY_BYTES) {
+    return Response.json({ error: 'Request body is too large.' }, { status: 413 });
   }
-
-  const suppliedIdempotencyKey = request.headers.get('Idempotency-Key');
-  if (
-    suppliedIdempotencyKey &&
-    !IDEMPOTENCY_KEY_PATTERN.test(suppliedIdempotencyKey)
-  ) {
-    return Response.json(
-      { error: 'Invalid Idempotency-Key.' },
-      { status: 400 }
-    );
-  }
-
-  const idempotencyKey =
-    suppliedIdempotencyKey || (await hashPayload(parsedBody.data));
-  const leadId = crypto.randomUUID();
 
   try {
+    const clientKey = await getClientKey(request);
+    const rateLimit = await checkLeadRateLimit(clientKey);
+
+    if (!rateLimit.allowed) {
+      return new Response(JSON.stringify({ error: 'Too many requests.' }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          'X-RateLimit-Remaining': '0'
+        }
+      });
+    }
+
+    const body = await request.json().catch(() => null);
+    const parsedBody = formSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return Response.json({ error: parsedBody.error.message }, { status: 400 });
+    }
+
+    const suppliedIdempotencyKey = request.headers.get('Idempotency-Key');
+    if (
+      suppliedIdempotencyKey &&
+      !IDEMPOTENCY_KEY_PATTERN.test(suppliedIdempotencyKey)
+    ) {
+      return Response.json(
+        { error: 'Invalid Idempotency-Key.' },
+        { status: 400 }
+      );
+    }
+
+    const idempotencyKey =
+      suppliedIdempotencyKey || (await hashPayload(parsedBody.data));
+    const leadId = crypto.randomUUID();
+
     const { record, created } = await createLeadRecord({
       id: leadId,
       idempotencyKey,
@@ -62,7 +83,10 @@ export async function POST(request: Request) {
           runId: record.runId,
           status: record.status
         },
-        { status: 200 }
+        {
+          status: 200,
+          headers: { 'X-RateLimit-Remaining': String(rateLimit.remaining) }
+        }
       );
     }
 
@@ -86,11 +110,13 @@ export async function POST(request: Request) {
         runId: run.runId,
         status: 'started'
       },
-      { status: 202 }
+      {
+        status: 202,
+        headers: { 'X-RateLimit-Remaining': String(rateLimit.remaining) }
+      }
     );
   } catch (error) {
     console.error('[lead-submit] failed', {
-      idempotencyKey,
       error: error instanceof Error ? error.message : 'unknown error'
     });
 
