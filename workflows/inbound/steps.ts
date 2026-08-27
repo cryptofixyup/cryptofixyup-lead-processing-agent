@@ -4,12 +4,21 @@ import {
   researchAgent,
   writeEmail
 } from '@/lib/services';
-import { updateLead, type LeadRecord } from '@/lib/lead-store';
+import {
+  hashApprovalToken,
+  updateLead,
+  type LeadRecord
+} from '@/lib/lead-store';
 import { FormSchema, QualificationSchema } from '@/lib/types';
 
 export const stepUpdateLead = async (
   leadId: string,
-  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'qualification' | 'delivery'>>
+  patch: Partial<
+    Pick<
+      LeadRecord,
+      'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'
+    >
+  >
 ) => {
   'use step';
 
@@ -45,6 +54,12 @@ export const stepCreateApprovalToken = async () => {
   'use step';
 
   return crypto.randomUUID();
+};
+
+export const stepHashApprovalToken = async (token: string) => {
+  'use step';
+
+  return hashApprovalToken(token);
 };
 
 export const stepHumanFeedback = async (
