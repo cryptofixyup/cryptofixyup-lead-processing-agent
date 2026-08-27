@@ -1,10 +1,11 @@
 import { createHandler } from '@vercel/slack-bolt';
 import { slackApp, receiver } from '@/lib/slack';
-import { sendEmail } from '@/lib/services';
+import { leadApprovalHook } from '@/workflows/inbound/hooks';
 
-// Only set up event handlers if Slack is initialized
+const APPROVAL_TOKEN_PATTERN = /^[0-9a-f-]{36}$/i;
+
 if (slackApp && receiver) {
-  slackApp.event('app_mention', async ({ event, client, logger }) => {
+  slackApp.event('app_mention', async ({ event, client }) => {
     await client.chat.postMessage({
       channel: event.channel,
       thread_ts: event.ts,
@@ -12,22 +13,49 @@ if (slackApp && receiver) {
     });
   });
 
-  slackApp.action(
-    'lead_approved',
-    async ({ body, action, ack, client, logger }) => {
-      await ack();
-      // in production, grab email from database or storage
-      await sendEmail('Send email to the lead');
+  const resumeApproval = async (
+    approved: boolean,
+    token: string,
+    client: Parameters<Parameters<typeof slackApp.action>[1]>[0]['client'],
+    body: Parameters<Parameters<typeof slackApp.action>[1]>[0]['body']
+  ) => {
+    if (!APPROVAL_TOKEN_PATTERN.test(token)) {
+      throw new Error('Invalid lead approval token.');
     }
-  );
 
-  slackApp.action(
-    'lead_rejected',
-    async ({ body, action, ack, client, logger }) => {
-      await ack();
-      // take action for feedback from human
+    await leadApprovalHook.resume(token, { approved });
+
+    const message = approved
+      ? 'Approval received. The workflow will send the approved email.'
+      : 'Lead email rejected. The workflow has been closed.';
+
+    if ('channel' in body && body.channel?.id && body.message?.ts) {
+      await client.chat.update({
+        channel: body.channel.id,
+        ts: body.message.ts,
+        text: message,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*${message}*`
+            }
+          }
+        ]
+      });
     }
-  );
+  };
+
+  slackApp.action('lead_approved', async ({ action, ack, client, body }) => {
+    await ack();
+    await resumeApproval(true, action.value, client, body);
+  });
+
+  slackApp.action('lead_rejected', async ({ action, ack, client, body }) => {
+    await ack();
+    await resumeApproval(false, action.value, client, body);
+  });
 }
 
 export const POST =
