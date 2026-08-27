@@ -28,7 +28,7 @@ Persistent sent / rejected / failed state
 
 The submission endpoint is idempotent. Clients may provide an `Idempotency-Key` header containing 1–128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, or `-`. If omitted, the validated lead payload is hashed with SHA-256 and used as the idempotency key.
 
-Lead lifecycle state and idempotency reservations are stored in Upstash Redis over HTTPS. The REST API supports atomic `SET ... NX EX` reservations for duplicate suppression. citeturn1search0
+Lead lifecycle state and idempotency reservations are stored in Upstash Redis over HTTPS. The REST API supports atomic `SET ... NX EX` reservations for duplicate suppression.
 
 ## Environment
 
