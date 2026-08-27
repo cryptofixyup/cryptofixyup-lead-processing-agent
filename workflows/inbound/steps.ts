@@ -4,7 +4,17 @@ import {
   researchAgent,
   writeEmail
 } from '@/lib/services';
+import { updateLead, type LeadRecord } from '@/lib/lead-store';
 import { FormSchema, QualificationSchema } from '@/lib/types';
+
+export const stepUpdateLead = async (
+  leadId: string,
+  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'qualification' | 'delivery'>>
+) => {
+  'use step';
+
+  return updateLead(leadId, patch);
+};
 
 export const stepQualify = async (data: FormSchema, research: string) => {
   'use step';
@@ -31,11 +41,6 @@ export const stepWriteEmail = async (
   return writeEmail(research, qualification);
 };
 
-/**
- * Generate an opaque approval capability outside the workflow's deterministic
- * orchestration code. The token contains no lead PII and is safe to put in a
- * Slack button value.
- */
 export const stepCreateApprovalToken = async () => {
   'use step';
 
