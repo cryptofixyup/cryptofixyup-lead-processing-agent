@@ -1,7 +1,5 @@
 # Lead Agent
 
-<img width="1819" height="1738" alt="hero" src="https://github.com/user-attachments/assets/347757fd-ad00-487d-bdd8-97113f13878b" />
-
 An inbound lead qualification and research agent built with Next.js, AI SDK, Workflow DevKit, and the Vercel Slack Adapter.
 
 ## Production flow
@@ -30,7 +28,7 @@ Persistent sent / rejected / failed state
 
 The submission endpoint is idempotent. Clients may provide an `Idempotency-Key` header containing 1–128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, or `-`. If omitted, the validated lead payload is hashed with SHA-256 and used as the idempotency key.
 
-Lead lifecycle state and idempotency reservations are stored in Upstash Redis over HTTPS, avoiding a stateful Node connection and keeping the deployment compatible with serverless runtimes. The REST API supports atomic `SET ... NX EX` reservations for duplicate suppression. citeturn1search0
+Lead lifecycle state and idempotency reservations are stored in Upstash Redis over HTTPS. The REST API supports atomic `SET ... NX EX` reservations for duplicate suppression. citeturn1search0
 
 ## Environment
 
@@ -52,7 +50,7 @@ UPSTASH_REDIS_REST_TOKEN
 
 Terminal alternatives are `closed`, `rejected`, and `failed`.
 
-Each stored lead has a 30-day TTL. Idempotency reservations have a 7-day TTL. This is intentionally an operational state store, not a long-term CRM or compliance archive.
+Each stored lead has a 30-day TTL. Idempotency reservations have a 7-day TTL. This store is intentionally an operational state layer, not a long-term CRM or compliance archive. For regulated retention, migrate the same record model to PostgreSQL and keep Redis as the idempotency/cache layer.
 
 ## CI
 
