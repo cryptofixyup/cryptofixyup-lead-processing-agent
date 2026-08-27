@@ -2,6 +2,10 @@
   "name": "lead-agent",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "next dev",
     "typecheck": "tsc --noEmit",
@@ -12,6 +16,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slot": "^1.1.1",
     "@radix-ui/react-slot": "^1.2.3",
     "@slack/bolt": "^4.6.0",
     "@slack/web-api": "^7.13.0",
