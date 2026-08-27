@@ -101,18 +101,18 @@ export async function POST(request: Request) {
       );
     }
 
+    await updateLead(record.id, { status: 'started' }, 'queued');
+
     const run = await start(workflowInbound, [parsedBody.data, record.id]);
 
-    await updateLead(record.id, { status: 'started', runId: run.runId }).catch(
-      (stateError) => {
-        console.error('[lead-submit] state update delayed', {
-          leadId: record.id,
-          runId: run.runId,
-          error:
-            stateError instanceof Error ? stateError.message : 'unknown error'
-        });
-      }
-    );
+    await updateLead(record.id, { runId: run.runId }).catch((stateError) => {
+      console.error('[lead-submit] run id update delayed', {
+        leadId: record.id,
+        runId: run.runId,
+        error:
+          stateError instanceof Error ? stateError.message : 'unknown error'
+      });
+    });
 
     return Response.json(
       {
