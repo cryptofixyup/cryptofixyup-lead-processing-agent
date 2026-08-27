@@ -39,7 +39,9 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
 
     const emailDraft = await stepWriteEmail(research, qualification);
     const approvalToken = await stepCreateApprovalToken();
+    const approvalHook = leadApprovalHook.create({ token: approvalToken });
 
+    await stepUpdateLead(leadId, { status: 'approval_pending' });
     await stepHumanFeedback(
       data.email,
       research,
@@ -48,9 +50,6 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
       approvalToken
     );
 
-    await stepUpdateLead(leadId, { status: 'approval_pending' });
-
-    const approvalHook = leadApprovalHook.create({ token: approvalToken });
     const { approved } = await approvalHook;
 
     if (!approved) {
