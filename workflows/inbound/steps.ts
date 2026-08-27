@@ -6,19 +6,12 @@ import {
 } from '@/lib/services';
 import { FormSchema, QualificationSchema } from '@/lib/types';
 
-/**
- * step to qualify the lead
- */
 export const stepQualify = async (data: FormSchema, research: string) => {
   'use step';
 
-  const qualification = await qualify(data, research);
-  return qualification;
+  return qualify(data, research);
 };
 
-/**
- * step to research the lead
- */
 export const stepResearch = async (data: FormSchema) => {
   'use step';
 
@@ -29,17 +22,13 @@ export const stepResearch = async (data: FormSchema) => {
   return research;
 };
 
-/**
- * step to write an email for the lead
- */
 export const stepWriteEmail = async (
   research: string,
   qualification: QualificationSchema
 ) => {
   'use step';
 
-  const email = await writeEmail(research, qualification);
-  return email;
+  return writeEmail(research, qualification);
 };
 
 /**
@@ -53,12 +42,10 @@ export const stepCreateApprovalToken = async () => {
   return crypto.randomUUID();
 };
 
-/**
- * Send the research and qualification to the human for approval in Slack.
- */
 export const stepHumanFeedback = async (
+  leadEmail: string,
   research: string,
-  email: string,
+  emailDraft: string,
   qualification: QualificationSchema,
   approvalToken: string
 ) => {
@@ -70,18 +57,15 @@ export const stepHumanFeedback = async (
     );
   }
 
-  const slackMessage = await humanFeedback(
+  return humanFeedback(
+    leadEmail,
     research,
-    email,
+    emailDraft,
     qualification,
     approvalToken
   );
-  return slackMessage;
 };
 
-/**
- * Send the approved email.
- */
 export const stepSendEmail = async (to: string, body: string) => {
   'use step';
 
