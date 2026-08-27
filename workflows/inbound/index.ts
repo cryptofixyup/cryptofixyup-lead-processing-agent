@@ -2,6 +2,7 @@ import { FormSchema } from '@/lib/types';
 import { leadApprovalHook } from './hooks';
 import {
   stepCreateApprovalToken,
+  stepHashApprovalToken,
   stepHumanFeedback,
   stepQualify,
   stepResearch,
@@ -39,9 +40,14 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
 
     const emailDraft = await stepWriteEmail(research, qualification);
     const approvalToken = await stepCreateApprovalToken();
+    const approvalTokenHash = await stepHashApprovalToken(approvalToken);
     const approvalHook = leadApprovalHook.create({ token: approvalToken });
 
-    await stepUpdateLead(leadId, { status: 'approval_pending' });
+    await stepUpdateLead(leadId, {
+      status: 'approval_pending',
+      approvalTokenHash
+    });
+
     await stepHumanFeedback(
       data.email,
       research,
@@ -58,7 +64,11 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
     }
 
     const delivery = await stepSendEmail(data.email, emailDraft);
-    await stepUpdateLead(leadId, { status: 'sent', delivery });
+    await stepUpdateLead(leadId, {
+      status: 'sent',
+      delivery,
+      approvalTokenHash: undefined
+    });
 
     return {
       status: 'sent',
