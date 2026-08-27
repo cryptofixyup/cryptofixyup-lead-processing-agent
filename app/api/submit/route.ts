@@ -43,7 +43,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const body = await request.json().catch(() => null);
+    const bodyBytes = new Uint8Array(await request.arrayBuffer());
+    if (bodyBytes.byteLength > MAX_BODY_BYTES) {
+      return Response.json({ error: 'Request body is too large.' }, { status: 413 });
+    }
+
+    let body: unknown = null;
+    try {
+      body = JSON.parse(new TextDecoder().decode(bodyBytes));
+    } catch {
+      return Response.json({ error: 'Invalid JSON body.' }, { status: 400 });
+    }
+
     const parsedBody = formSchema.safeParse(body);
 
     if (!parsedBody.success) {
