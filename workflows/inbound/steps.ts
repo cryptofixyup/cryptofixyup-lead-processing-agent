@@ -43,22 +43,48 @@ export const stepWriteEmail = async (
 };
 
 /**
- * step to get human feedback for the email
+ * Generate an opaque approval capability outside the workflow's deterministic
+ * orchestration code. The token contains no lead PII and is safe to put in a
+ * Slack button value.
+ */
+export const stepCreateApprovalToken = async () => {
+  'use step';
+
+  return crypto.randomUUID();
+};
+
+/**
+ * Send the research and qualification to the human for approval in Slack.
  */
 export const stepHumanFeedback = async (
   research: string,
   email: string,
-  qualification: QualificationSchema
+  qualification: QualificationSchema,
+  approvalToken: string
 ) => {
   'use step';
 
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_SIGNING_SECRET) {
-    console.warn(
-      '⚠️  SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not set, skipping human feedback step'
+    throw new Error(
+      'Slack approval is required but SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not configured.'
     );
-    return;
   }
 
-  const slackMessage = await humanFeedback(research, email, qualification);
+  const slackMessage = await humanFeedback(
+    research,
+    email,
+    qualification,
+    approvalToken
+  );
   return slackMessage;
+};
+
+/**
+ * Send the approved email.
+ */
+export const stepSendEmail = async (to: string, body: string) => {
+  'use step';
+
+  const { sendEmail } = await import('@/lib/services');
+  return sendEmail(to, body);
 };
