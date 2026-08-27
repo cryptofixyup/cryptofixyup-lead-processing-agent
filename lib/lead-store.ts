@@ -24,6 +24,7 @@ export const leadRecordSchema = z.object({
   message: z.string().min(10).max(500),
   status: leadStatusSchema,
   runId: z.string().max(200).optional(),
+  approvalTokenHash: z.string().length(64).optional(),
   qualification: z
     .object({
       category: z.enum(['QUALIFIED', 'UNQUALIFIED', 'SUPPORT', 'FOLLOW_UP']),
@@ -45,6 +46,7 @@ export type LeadRecord = z.infer<typeof leadRecordSchema>;
 const KEY_PREFIX = 'lead-agent:';
 const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 const LEAD_TTL_SECONDS = 30 * 24 * 60 * 60;
+const APPROVAL_LOCK_TTL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 5000;
 
 function getConfig() {
@@ -91,6 +93,16 @@ async function redisCommand<T>(command: unknown[]): Promise<T> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function hashApprovalToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(token)
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
 }
 
 export async function createLeadRecord(
@@ -161,9 +173,22 @@ export async function getLead(id: string): Promise<LeadRecord | null> {
   return leadRecordSchema.parse(JSON.parse(value));
 }
 
+export async function getLeadByApprovalToken(
+  token: string
+): Promise<LeadRecord | null> {
+  const tokenHash = await hashApprovalToken(token);
+  const leadId = await redisCommand<string | null>([
+    'GET',
+    `${KEY_PREFIX}approval:${tokenHash}`
+  ]);
+
+  if (!leadId) return null;
+  return getLead(leadId);
+}
+
 export async function updateLead(
   id: string,
-  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'qualification' | 'delivery'>>
+  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'>>
 ): Promise<LeadRecord> {
   const current = await getLead(id);
   if (!current) throw new Error(`Lead ${id} not found.`);
@@ -182,5 +207,34 @@ export async function updateLead(
     LEAD_TTL_SECONDS
   ]);
 
+  if (patch.approvalTokenHash) {
+    await redisCommand<string>([
+      'SET',
+      `${KEY_PREFIX}approval:${patch.approvalTokenHash}`,
+      id,
+      'EX',
+      LEAD_TTL_SECONDS
+    ]);
+  }
+
   return updated;
+}
+
+export async function claimApproval(leadId: string): Promise<boolean> {
+  const result = await redisCommand<string | null>([
+    'SET',
+    `${KEY_PREFIX}approval-lock:${leadId}`,
+    '1',
+    'NX',
+    'EX',
+    APPROVAL_LOCK_TTL_SECONDS
+  ]);
+  return result === 'OK';
+}
+
+export async function releaseApprovalClaim(leadId: string): Promise<void> {
+  await redisCommand<string | null>([
+    'DEL',
+    `${KEY_PREFIX}approval-lock:${leadId}`
+  ]);
 }
