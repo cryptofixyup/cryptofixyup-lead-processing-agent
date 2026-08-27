@@ -186,37 +186,76 @@ export async function getLeadByApprovalToken(
   return getLead(leadId);
 }
 
+const UPDATE_LEAD_LUA = `
+local current = redis.call('GET', KEYS[1])
+if not current then return { 'NOT_FOUND' } end
+
+local record = cjson.decode(current)
+local expectedStatus = ARGV[1]
+local patch = cjson.decode(ARGV[2])
+
+if expectedStatus ~= '' and record.status ~= expectedStatus then
+  return { 'CONFLICT', record.status }
+end
+
+local previousApprovalTokenHash = record.approvalTokenHash
+for key, value in pairs(patch) do
+  record[key] = value
+end
+record.updatedAt = ARGV[3]
+
+local encoded = cjson.encode(record)
+redis.call('SET', KEYS[1], encoded, 'EX', ARGV[4])
+
+if patch.approvalTokenHash then
+  if previousApprovalTokenHash and previousApprovalTokenHash ~= patch.approvalTokenHash then
+    redis.call('DEL', 'lead-agent:approval:' .. previousApprovalTokenHash)
+  end
+  redis.call('SET', 'lead-agent:approval:' .. patch.approvalTokenHash, ARGV[5], 'EX', ARGV[4])
+end
+
+return { 'OK', encoded }
+`;
+
 export async function updateLead(
   id: string,
-  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'>>
+  patch: Partial<Pick<LeadRecord, 'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'>>,
+  expectedStatus?: LeadStatus
 ): Promise<LeadRecord> {
-  const current = await getLead(id);
-  if (!current) throw new Error(`Lead ${id} not found.`);
+  const validatedPatch = z
+    .object({
+      status: leadStatusSchema.optional(),
+      runId: z.string().max(200).optional(),
+      approvalTokenHash: z.string().length(64).optional(),
+      qualification: leadRecordSchema.shape.qualification.optional(),
+      delivery: leadRecordSchema.shape.delivery.optional()
+    })
+    .strict()
+    .parse(patch);
 
-  const updated = leadRecordSchema.parse({
-    ...current,
-    ...patch,
-    updatedAt: new Date().toISOString()
-  });
-
-  await redisCommand<string>([
-    'SET',
+  const result = await redisCommand<string[]>([
+    'EVAL',
+    UPDATE_LEAD_LUA,
+    '1',
     `${KEY_PREFIX}lead:${id}`,
-    JSON.stringify(updated),
-    'EX',
-    LEAD_TTL_SECONDS
+    expectedStatus || '',
+    JSON.stringify(validatedPatch),
+    new Date().toISOString(),
+    LEAD_TTL_SECONDS,
+    id
   ]);
 
-  if (patch.approvalTokenHash) {
-    await redisCommand<string>([
-      'SET',
-      `${KEY_PREFIX}approval:${patch.approvalTokenHash}`,
-      id,
-      'EX',
-      LEAD_TTL_SECONDS
-    ]);
+  if (result[0] === 'NOT_FOUND') {
+    throw new Error(`Lead ${id} not found.`);
   }
 
+  if (result[0] === 'CONFLICT') {
+    throw new Error(
+      `Lead ${id} state conflict: expected ${expectedStatus}, found ${result[1]}.`
+    );
+  }
+
+  const updated = leadRecordSchema.parse(JSON.parse(result[1]));
   return updated;
 }
 
