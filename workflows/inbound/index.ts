@@ -1,21 +1,19 @@
 import { FormSchema } from '@/lib/types';
+import { leadApprovalHook } from './hooks';
 import {
+  stepCreateApprovalToken,
   stepHumanFeedback,
   stepQualify,
   stepResearch,
+  stepSendEmail,
   stepWriteEmail
 } from './steps';
 
 /**
- * workflow to handle the inbound lead
- * - research the lead
- * - qualify the lead
- * - if the lead is qualified or follow up:
- *   - write an email for the lead
- *   - get human feedback for the email
- *   - send the email to the human for approval
- * - if the lead is not qualified or follow up:
- *   - take other actions here based on other qualification categories
+ * Durable inbound lead workflow.
+ *
+ * Qualified leads are researched, drafted, sent to Slack for human approval,
+ * and the workflow then pauses until the approval hook is resumed.
  */
 export const workflowInbound = async (data: FormSchema) => {
   'use workflow';
@@ -24,12 +22,35 @@ export const workflowInbound = async (data: FormSchema) => {
   const qualification = await stepQualify(data, research);
 
   if (
-    qualification.category === 'QUALIFIED' ||
-    qualification.category === 'FOLLOW_UP'
+    qualification.category !== 'QUALIFIED' &&
+    qualification.category !== 'FOLLOW_UP'
   ) {
-    const email = await stepWriteEmail(research, qualification);
-    await stepHumanFeedback(research, email, qualification);
+    return { status: 'closed', category: qualification.category };
   }
 
-  // take other actions here based on other qualification categories
+  const emailDraft = await stepWriteEmail(research, qualification);
+  const approvalToken = await stepCreateApprovalToken();
+  const approvalHook = leadApprovalHook.create({ token: approvalToken });
+
+  await stepHumanFeedback(
+    data.email,
+    research,
+    emailDraft,
+    qualification,
+    approvalToken
+  );
+
+  const { approved } = await approvalHook;
+
+  if (!approved) {
+    return { status: 'rejected', category: qualification.category };
+  }
+
+  const delivery = await stepSendEmail(data.email, emailDraft);
+
+  return {
+    status: 'sent',
+    category: qualification.category,
+    delivery
+  };
 };
