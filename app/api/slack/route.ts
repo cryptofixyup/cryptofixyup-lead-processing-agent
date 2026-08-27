@@ -10,6 +10,11 @@ import { leadApprovalHook } from '@/workflows/inbound/hooks';
 
 const APPROVAL_TOKEN_PATTERN = /^[0-9a-f-]{36}$/i;
 
+type SlackActionWithValue = { value?: unknown };
+type SlackBodyWithMessage = {
+  message?: { ts?: string };
+};
+
 function getAuthorizedApproverIds(): Set<string> {
   return new Set(
     (process.env.SLACK_APPROVER_IDS || '')
@@ -17,6 +22,28 @@ function getAuthorizedApproverIds(): Set<string> {
       .map((id) => id.trim())
       .filter(Boolean)
   );
+}
+
+function getActionValue(action: unknown): string {
+  if (!action || typeof action !== 'object') {
+    throw new Error('Slack approval action is invalid.');
+  }
+
+  const value = (action as SlackActionWithValue).value;
+  if (typeof value !== 'string' || !APPROVAL_TOKEN_PATTERN.test(value)) {
+    throw new Error('Invalid lead approval token.');
+  }
+
+  return value;
+}
+
+function getMessageTs(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object' || !('message' in body)) {
+    return undefined;
+  }
+
+  const message = (body as SlackBodyWithMessage).message;
+  return typeof message?.ts === 'string' ? message.ts : undefined;
 }
 
 async function resumeApproval(
@@ -27,10 +54,6 @@ async function resumeApproval(
   channelId?: string,
   messageTs?: string
 ) {
-  if (!APPROVAL_TOKEN_PATTERN.test(token)) {
-    throw new Error('Invalid lead approval token.');
-  }
-
   const authorizedApprovers = getAuthorizedApproverIds();
   if (authorizedApprovers.size === 0 || !authorizedApprovers.has(approverId)) {
     throw new Error('Slack user is not authorized to approve lead email.');
@@ -89,11 +112,11 @@ if (slackApp && receiver) {
     await ack();
     await resumeApproval(
       true,
-      action.value,
+      getActionValue(action),
       body.user.id,
       client,
       body.channel?.id,
-      body.message?.ts
+      getMessageTs(body)
     );
   });
 
@@ -101,11 +124,11 @@ if (slackApp && receiver) {
     await ack();
     await resumeApproval(
       false,
-      action.value,
+      getActionValue(action),
       body.user.id,
       client,
       body.channel?.id,
-      body.message?.ts
+      getMessageTs(body)
     );
   });
 }
