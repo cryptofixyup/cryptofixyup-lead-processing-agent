@@ -7,7 +7,8 @@ import {
 import {
   hashApprovalToken,
   updateLead,
-  type LeadRecord
+  type LeadRecord,
+  type LeadStatus
 } from '@/lib/lead-store';
 import { FormSchema, QualificationSchema } from '@/lib/types';
 
@@ -18,11 +19,12 @@ export const stepUpdateLead = async (
       LeadRecord,
       'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'
     >
-  >
+  >,
+  expectedStatus?: LeadStatus
 ) => {
   'use step';
 
-  return updateLead(leadId, patch);
+  return updateLead(leadId, patch, expectedStatus);
 };
 
 export const stepQualify = async (data: FormSchema, research: string) => {
