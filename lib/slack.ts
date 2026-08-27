@@ -4,16 +4,16 @@ import { VercelReceiver } from '@vercel/slack-bolt';
 const logLevel =
   process.env.NODE_ENV === 'development' ? LogLevel.DEBUG : LogLevel.INFO;
 
-const hasSlackCredentials =
-  process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET;
+const hasSlackCredentials = Boolean(
+  process.env.SLACK_BOT_TOKEN && process.env.SLACK_SIGNING_SECRET
+);
 
 if (!hasSlackCredentials) {
   console.warn(
-    '⚠️  SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not set. Slack integration will be disabled.'
+    'Slack credentials are not configured. Slack integration is disabled.'
   );
 }
 
-// Only initialize Slack if credentials are available
 export const receiver = hasSlackCredentials
   ? new VercelReceiver({
       signingSecret: process.env.SLACK_SIGNING_SECRET!,
@@ -21,9 +21,6 @@ export const receiver = hasSlackCredentials
     })
   : null;
 
-/**
- * Slack App instance
- */
 export const slackApp = hasSlackCredentials
   ? new App({
       token: process.env.SLACK_BOT_TOKEN!,
@@ -35,22 +32,26 @@ export const slackApp = hasSlackCredentials
   : null;
 
 /**
- * Send the research and qualification to the human for approval in slack
+ * Send an approval card. The token is an opaque Workflow hook capability;
+ * never put lead PII or the generated email in the button value.
  */
 export async function sendSlackMessageWithButtons(
   channel: string,
-  text: string
+  text: string,
+  approvalToken: string
 ): Promise<{ messageTs: string; channel: string }> {
   if (!slackApp) {
     throw new Error(
-      'Slack app is not initialized. Please set SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET environment variables.'
+      'Slack app is not initialized. Configure SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET.'
     );
   }
 
-  // Ensure the app is initialized
+  if (!approvalToken || approvalToken.length > 200) {
+    throw new Error('Invalid approval token.');
+  }
+
   await slackApp.client.auth.test();
 
-  // Send message with blocks including action buttons
   const result = await slackApp.client.chat.postMessage({
     channel,
     text,
@@ -69,33 +70,35 @@ export async function sendSlackMessageWithButtons(
             type: 'button',
             text: {
               type: 'plain_text',
-              text: '👍 Approve',
+              text: 'Approve',
               emoji: true
             },
             style: 'primary',
-            action_id: 'lead_approved'
+            action_id: 'lead_approved',
+            value: approvalToken
           },
           {
             type: 'button',
             text: {
               type: 'plain_text',
-              text: '👎 Reject',
+              text: 'Reject',
               emoji: true
             },
             style: 'danger',
-            action_id: 'lead_rejected'
+            action_id: 'lead_rejected',
+            value: approvalToken
           }
         ]
       }
     ]
   });
 
-  if (!result.ok || !result.ts) {
-    throw new Error(`Failed to send Slack message`);
+  if (!result.ok || !result.ts || !result.channel) {
+    throw new Error('Failed to send Slack approval message.');
   }
 
   return {
     messageTs: result.ts,
-    channel: result.channel!
+    channel: result.channel
   };
 }

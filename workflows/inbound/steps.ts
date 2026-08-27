@@ -4,21 +4,33 @@ import {
   researchAgent,
   writeEmail
 } from '@/lib/services';
+import {
+  hashApprovalToken,
+  updateLead,
+  type LeadRecord
+} from '@/lib/lead-store';
 import { FormSchema, QualificationSchema } from '@/lib/types';
 
-/**
- * step to qualify the lead
- */
+export const stepUpdateLead = async (
+  leadId: string,
+  patch: Partial<
+    Pick<
+      LeadRecord,
+      'status' | 'runId' | 'approvalTokenHash' | 'qualification' | 'delivery'
+    >
+  >
+) => {
+  'use step';
+
+  return updateLead(leadId, patch);
+};
+
 export const stepQualify = async (data: FormSchema, research: string) => {
   'use step';
 
-  const qualification = await qualify(data, research);
-  return qualification;
+  return qualify(data, research);
 };
 
-/**
- * step to research the lead
- */
 export const stepResearch = async (data: FormSchema) => {
   'use step';
 
@@ -29,36 +41,58 @@ export const stepResearch = async (data: FormSchema) => {
   return research;
 };
 
-/**
- * step to write an email for the lead
- */
 export const stepWriteEmail = async (
   research: string,
   qualification: QualificationSchema
 ) => {
   'use step';
 
-  const email = await writeEmail(research, qualification);
-  return email;
+  return writeEmail(research, qualification);
 };
 
-/**
- * step to get human feedback for the email
- */
+export const stepCreateApprovalToken = async () => {
+  'use step';
+
+  return crypto.randomUUID();
+};
+
+export const stepHashApprovalToken = async (token: string) => {
+  'use step';
+
+  return hashApprovalToken(token);
+};
+
 export const stepHumanFeedback = async (
+  leadEmail: string,
   research: string,
-  email: string,
-  qualification: QualificationSchema
+  emailDraft: string,
+  qualification: QualificationSchema,
+  approvalToken: string
 ) => {
   'use step';
 
   if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_SIGNING_SECRET) {
-    console.warn(
-      '⚠️  SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not set, skipping human feedback step'
+    throw new Error(
+      'Slack approval is required but SLACK_BOT_TOKEN or SLACK_SIGNING_SECRET is not configured.'
     );
-    return;
   }
 
-  const slackMessage = await humanFeedback(research, email, qualification);
-  return slackMessage;
+  return humanFeedback(
+    leadEmail,
+    research,
+    emailDraft,
+    qualification,
+    approvalToken
+  );
+};
+
+export const stepSendEmail = async (
+  to: string,
+  body: string,
+  leadId: string
+) => {
+  'use step';
+
+  const { sendEmail } = await import('@/lib/services');
+  return sendEmail(to, body, leadId);
 };
