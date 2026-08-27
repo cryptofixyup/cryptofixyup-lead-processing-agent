@@ -95,7 +95,7 @@ async function redisCommand<T>(command: unknown[]): Promise<T> {
 
 export async function createLeadRecord(
   record: Omit<LeadRecord, 'status' | 'createdAt' | 'updatedAt'>
-): Promise<LeadRecord> {
+): Promise<{ record: LeadRecord; created: boolean }> {
   const now = new Date().toISOString();
   const lead = leadRecordSchema.parse({
     ...record,
@@ -118,7 +118,7 @@ export async function createLeadRecord(
     if (!existing) {
       throw new Error('Idempotency reservation exists without a lead record.');
     }
-    return existing;
+    return { record: existing, created: false };
   }
 
   try {
@@ -129,7 +129,7 @@ export async function createLeadRecord(
       'EX',
       LEAD_TTL_SECONDS
     ]);
-    return lead;
+    return { record: lead, created: true };
   } catch (error) {
     await redisCommand<string | null>([
       'DEL',
