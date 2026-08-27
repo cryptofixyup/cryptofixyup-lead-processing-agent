@@ -86,9 +86,13 @@ export const stepHumanFeedback = async (
   );
 };
 
-export const stepSendEmail = async (to: string, body: string) => {
+export const stepSendEmail = async (
+  to: string,
+  body: string,
+  leadId: string
+) => {
   'use step';
 
   const { sendEmail } = await import('@/lib/services');
-  return sendEmail(to, body);
+  return sendEmail(to, body, leadId);
 };
