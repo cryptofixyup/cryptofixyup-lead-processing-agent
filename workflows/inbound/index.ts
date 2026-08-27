@@ -17,8 +17,12 @@ import {
 export const workflowInbound = async (data: FormSchema, leadId: string) => {
   'use workflow';
 
+  let currentStatus: 'started' | 'researching' | 'qualified' | 'approval_pending' = 'started';
+
   try {
     await stepUpdateLead(leadId, { status: 'researching' }, 'started');
+    currentStatus = 'researching';
+
     const research = await stepResearch(data);
     const qualification = await stepQualify(data, research);
 
@@ -38,6 +42,8 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
       return { status: 'closed', category: qualification.category };
     }
 
+    currentStatus = 'qualified';
+
     const emailDraft = await stepWriteEmail(research, qualification);
     const approvalToken = await stepCreateApprovalToken();
     const approvalTokenHash = await stepHashApprovalToken(approvalToken);
@@ -48,6 +54,7 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
       { status: 'approval_pending', approvalTokenHash },
       'qualified'
     );
+    currentStatus = 'approval_pending';
 
     await stepHumanFeedback(
       data.email,
@@ -81,9 +88,11 @@ export const workflowInbound = async (data: FormSchema, leadId: string) => {
       delivery
     };
   } catch (error) {
-    await stepUpdateLead(leadId, { status: 'failed' }).catch((stateError) => {
-      console.error('[lead-workflow] failed to persist failure state', stateError);
-    });
+    await stepUpdateLead(leadId, { status: 'failed' }, currentStatus).catch(
+      (stateError) => {
+        console.error('[lead-workflow] failed to persist failure state', stateError);
+      }
+    );
 
     throw error;
   }
